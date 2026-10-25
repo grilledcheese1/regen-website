@@ -56,7 +56,43 @@ export default function Motion() {
       );
     });
 
-    return () => ctx.revert();
+    // Nav jumps: a curtain wipes up over the page, the page cuts to the target underneath, and the curtain exits upward.
+    const curtain = document.createElement("div");
+    curtain.className = "curtain";
+    curtain.setAttribute("aria-hidden", "true");
+    document.body.appendChild(curtain);
+    let busy = false;
+
+    const onClick = (e: MouseEvent) => {
+      const link = (e.target as Element).closest<HTMLAnchorElement>('.nav a[href^="#"]');
+      if (link === null || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const id = link.getAttribute("href")!.slice(1);
+      const target = id === "top" ? document.body : document.getElementById(id);
+      if (target === null) return;
+      e.preventDefault();
+      if (busy) return;
+      busy = true;
+      const navH = document.querySelector<HTMLElement>(".nav")?.offsetHeight ?? 0;
+      const y = id === "top" ? 0 : target.getBoundingClientRect().top + window.scrollY - navH;
+
+      gsap
+        .timeline({ onComplete: () => { busy = false; } })
+        .set(curtain, { yPercent: 0, y: 0 })
+        .fromTo(curtain, { yPercent: 100 }, { yPercent: 0, duration: 0.45, ease: "expo.inOut" })
+        .add(() => {
+          window.scrollTo(0, y);
+          ScrollTrigger.update();
+          history.replaceState(null, "", `#${id}`);
+        })
+        .to(curtain, { yPercent: -100, duration: 0.55, ease: "expo.inOut" }, "+=0.05");
+    };
+    document.addEventListener("click", onClick);
+
+    return () => {
+      document.removeEventListener("click", onClick);
+      curtain.remove();
+      ctx.revert();
+    };
   }, []);
 
   return null;

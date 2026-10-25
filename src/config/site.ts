@@ -3,7 +3,7 @@ export const SITE = {
   tagline: "Every brake is free energy.",
   description:
     "Regen Coach shows how much you’re leaving on the road. We replay simulated hybrid drives on a real 3D city map and score how well each driver captures regenerative braking.",
-  appUrl: "http://localhost:3000",
+  appUrl: "https://app.regentic.tech",
 } as const;
 
 export const MAP = {

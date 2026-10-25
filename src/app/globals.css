@@ -130,7 +130,6 @@ p { margin: 0; }
 .footer { border-top: 1px solid var(--border); padding: 64px 0; color: var(--text-2); font-size: 14px; }
 .footer .container { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 
-.theme-toggle { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); cursor: pointer; font-size: 15px; }
 
 @media (max-width: 1023px) {
   .nav-links { display: none; }
@@ -223,3 +222,6 @@ html.motion .step .fw { color: color-mix(in srgb, var(--text) 16%, transparent);
 html.motion .step .fw::after { content: attr(data-w); position: absolute; left: 0; top: 0; color: var(--text); clip-path: inset(-0.3em var(--c, 100%) -0.3em -0.1em); }
 html.motion .step .step-body { opacity: 0; }
 @media (max-width: 767px) { .step { grid-template-columns: 1fr; } .step .step-body { grid-column: 1; grid-row: auto; } }
+
+/* Page transition curtain for nav jumps */
+.curtain { position: fixed; inset: 0; z-index: 50; background: var(--accent); pointer-events: none; transform: translateY(100%); }

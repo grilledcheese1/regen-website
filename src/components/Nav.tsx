@@ -1,5 +1,4 @@
 import { SITE } from "@/config/site";
-import ThemeToggle from "./ThemeToggle";
 
 export default function Nav() {
   return (
@@ -14,7 +13,6 @@ export default function Nav() {
           <a href="#conditions">Conditions</a>
         </nav>
         <div className="nav-right">
-          <ThemeToggle />
           <a href={SITE.appUrl} className="btn btn-primary">Try a drive</a>
         </div>
       </div>
