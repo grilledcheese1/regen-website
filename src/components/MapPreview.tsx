@@ -211,6 +211,8 @@ export default function MapPreview() {
     };
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     map.on("load", () => {
+      // Start the credit collapsed behind its ⓘ button so it doesn't cover the map tag; it opens on click.
+      el.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
       if (reduced) showSample(0, 0);
       else raf = requestAnimationFrame(tick);
     });

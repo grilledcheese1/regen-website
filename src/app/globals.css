@@ -1,4 +1,10 @@
-:root,
+:root {
+  --brand-red: #eb0a1e;
+  --font-heading: var(--font-display), "Iowan Old Style", Palatino, Georgia, serif;
+  --font-body: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0d1013;
@@ -16,12 +22,9 @@
   --good: #22a08f;
   --mid: #c98500;
   --bad: #d5516d;
-  --brand-red: #eb0a1e;
-  --font-heading: var(--font-display), "Iowan Old Style", Palatino, Georgia, serif;
-  --font-body: "Avenir Next", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
 
+:root,
 :root[data-theme="bright"] {
   color-scheme: light;
   --bg: #ffffff;
@@ -39,8 +42,6 @@
   --good: #1f9d55;
   --mid: #c98500;
   --bad: #eb0a1e;
-  --font-heading: Inter, "Segoe UI", system-ui, sans-serif;
-  --font-body: Inter, "Segoe UI", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
