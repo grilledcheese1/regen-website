@@ -155,7 +155,7 @@ export default function Move() {
         const pts = Array.from({ length: N + 1 }, (_, i) => {
           const t = (tEnd * i) / N;
           const r = route(t);
-          return { x: r.x, y: r.y + t * range - journeyTop, w: r.d * 0.3 };
+          return { x: r.x, y: r.y + t * range - journeyTop, w: r.d / 2 };
         });
         const sides = pts.map((q, i) => {
           const a2 = pts[Math.max(0, i - 1)];
@@ -167,12 +167,30 @@ export default function Move() {
           const ny = tx / m;
           return { l: [q.x + nx * q.w, q.y + ny * q.w], r: [q.x - nx * q.w, q.y - ny * q.w] };
         });
+        // Both ends are round caps (semicircular arcs), so the ribbon reads as a swept circle, not a cut strip.
+        const fmt = (q: number[]) => `${q[0].toFixed(1)},${q[1].toFixed(1)}`;
         const drawBrush = (t: number) => {
           const k = Math.min(N, Math.floor((t / tEnd) * N));
           if (k < 1) return brush.setAttribute("d", "");
-          const left = sides.slice(0, k + 1).map((q) => `${q.l[0].toFixed(1)},${q.l[1].toFixed(1)}`);
-          const right = sides.slice(0, k + 1).reverse().map((q) => `${q.r[0].toFixed(1)},${q.r[1].toFixed(1)}`);
-          brush.setAttribute("d", `M${left.join("L")}L${right.join("L")}Z`);
+          // The head is the dot's exact position, not the last sample, so the cap wraps the dot itself.
+          const r = route(t);
+          const head = { x: r.x, y: r.y + t * range - journeyTop, w: r.d / 2 };
+          const prev = pts[k];
+          let tx = head.x - prev.x;
+          let ty = head.y - prev.y;
+          if (Math.hypot(tx, ty) < 0.01) {
+            tx = prev.x - pts[k - 1].x;
+            ty = prev.y - pts[k - 1].y;
+          }
+          const m = Math.hypot(tx, ty) || 1;
+          const hl = [head.x + (-ty / m) * head.w, head.y + (tx / m) * head.w];
+          const hr = [head.x - (-ty / m) * head.w, head.y - (tx / m) * head.w];
+          const left = sides.slice(0, k + 1).map((q) => fmt(q.l));
+          const right = sides.slice(0, k + 1).reverse().map((q) => fmt(q.r));
+          brush.setAttribute(
+            "d",
+            `M${left.join("L")}L${fmt(hl)}A${head.w},${head.w} 0 0 0 ${fmt(hr)}L${right.join("L")}A${pts[0].w},${pts[0].w} 0 0 0 ${left[0]}Z`,
+          );
         };
 
         const tl = gsap.timeline({
