@@ -1,7 +1,7 @@
 {
   "simulated": true,
-  "note": "Synthesized drivers from the Regen Coach simulation. Not real people; all numbers are estimates.",
-  "generatedFrom": "simulated_user_data (26 drivers)",
+  "note": "Synthesized drivers from the Regentic simulation. Not real people; all numbers are estimates.",
+  "generatedFrom": "regenerative-analysis@0ae4e98: simulated_user_data (26 drivers), data/trips",
   "drivers": 26,
   "byStyle": [
     {
@@ -67,10 +67,198 @@
     "avgSavingsWhenSwitching5yUsd": 8263
   },
   "annual": {
-    "basis": "4 demo commuters, 2 trips a day, 365 days, gas $3.00/gal",
-    "gallons": 27.2,
-    "dollars": 82,
-    "co2Lb": 534,
-    "kwh": 275
-  }
+    "basis": "9 simulated dry-road commutes, 2 trips a day, 365 days, gas $3.00/gal",
+    "gallons": 26.2,
+    "dollars": 79,
+    "co2Lb": 515,
+    "kwh": 265
+  },
+  "calculator": {
+    "basis": "9 simulated dry-road trips (3 routes x 3 driving styles)",
+    "kwhPerGallon": 33.7,
+    "engineEfficiency": 0.3,
+    "kgCo2PerGallon": 8.9,
+    "defaultGasPriceUsd": 3,
+    "kwhPerKm": {
+      "smooth": 0.0693,
+      "mixed": 0.0675,
+      "aggressive": 0.0575
+    }
+  },
+  "receipt": {
+    "tripId": "mixed-mixed-dry",
+    "route": "mixed",
+    "driver": "mixed",
+    "condition": "dry",
+    "vehicle": "Camry Hybrid (simulated)",
+    "distanceKm": 5.9,
+    "score": 56,
+    "recoveredKwh": 0.4,
+    "ceilingKwh": 0.71,
+    "heatLossKwh": 0.42,
+    "missed": [
+      {
+        "cause": "full battery",
+        "count": 8
+      },
+      {
+        "cause": "late braking",
+        "count": 3
+      },
+      {
+        "cause": "low grip",
+        "count": 2
+      }
+    ],
+    "gallons": 0.039,
+    "dollars": 0.12,
+    "co2Lb": 0.77,
+    "tip": "A decent trip with room to improve. The biggest loss was 8 full battery events: expect less regen when the battery is nearly full, and use the extra coasting time to slow down gradually."
+  },
+  "leaders": [
+    {
+      "name": "Ava",
+      "style": "aggressive",
+      "baselineScore": 50.6,
+      "finalScore": 56.2,
+      "improvement": 5.6,
+      "missed": "late braking"
+    },
+    {
+      "name": "Noah",
+      "style": "smooth",
+      "baselineScore": 79.2,
+      "finalScore": 84,
+      "improvement": 4.8,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Zoe",
+      "style": "aggressive",
+      "baselineScore": 30.1,
+      "finalScore": 29.9,
+      "improvement": -0.2,
+      "missed": "late braking"
+    },
+    {
+      "name": "Ethan",
+      "style": "smooth",
+      "baselineScore": 79.5,
+      "finalScore": 88.4,
+      "improvement": 8.9,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Sofia",
+      "style": "mixed",
+      "baselineScore": 69.8,
+      "finalScore": 78.1,
+      "improvement": 8.3,
+      "missed": "late braking"
+    },
+    {
+      "name": "Nora",
+      "style": "smooth",
+      "baselineScore": 84.9,
+      "finalScore": 88.8,
+      "improvement": 3.9,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Owen",
+      "style": "aggressive",
+      "baselineScore": 25.4,
+      "finalScore": 33,
+      "improvement": 7.6,
+      "missed": "late braking"
+    },
+    {
+      "name": "Ivy",
+      "style": "smooth",
+      "baselineScore": 90.8,
+      "finalScore": 95.3,
+      "improvement": 4.5,
+      "missed": "full battery"
+    },
+    {
+      "name": "Mateo",
+      "style": "mixed",
+      "baselineScore": 68.2,
+      "finalScore": 72.3,
+      "improvement": 4.1,
+      "missed": "late braking"
+    },
+    {
+      "name": "Ruby",
+      "style": "aggressive",
+      "baselineScore": 37.6,
+      "finalScore": 38.4,
+      "improvement": 0.8,
+      "missed": "late braking"
+    },
+    {
+      "name": "Jonah",
+      "style": "smooth",
+      "baselineScore": 88,
+      "finalScore": 93.6,
+      "improvement": 5.6,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Tessa",
+      "style": "smooth",
+      "baselineScore": 91.8,
+      "finalScore": 99.5,
+      "improvement": 7.7,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Omar",
+      "style": "mixed",
+      "baselineScore": 81.6,
+      "finalScore": 87.6,
+      "improvement": 6,
+      "missed": "late braking"
+    },
+    {
+      "name": "Priya",
+      "style": "aggressive",
+      "baselineScore": 45.3,
+      "finalScore": 50.6,
+      "improvement": 5.3,
+      "missed": "late braking"
+    },
+    {
+      "name": "Diego",
+      "style": "smooth",
+      "baselineScore": 99.2,
+      "finalScore": 99.5,
+      "improvement": 0.3,
+      "missed": "full battery"
+    },
+    {
+      "name": "Amara",
+      "style": "mixed",
+      "baselineScore": 51.9,
+      "finalScore": 56,
+      "improvement": 4.1,
+      "missed": "late braking"
+    },
+    {
+      "name": "Theo",
+      "style": "smooth",
+      "baselineScore": 79.7,
+      "finalScore": 84.6,
+      "improvement": 4.9,
+      "missed": "cold battery"
+    },
+    {
+      "name": "Elif",
+      "style": "mixed",
+      "baselineScore": 74.4,
+      "finalScore": 79.2,
+      "improvement": 4.8,
+      "missed": "cold battery"
+    }
+  ]
 }

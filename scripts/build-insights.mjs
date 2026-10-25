@@ -1,6 +1,7 @@
 // Reads the simulated driver dataset from regenerative-analysis (read-only) and writes the small
 // aggregate src/data/insights.json that the landing page imports. Everything in it is SIMULATED.
 // Run: node scripts/build-insights.mjs [path/to/simulated_user_data]
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -75,36 +76,125 @@ const money = {
 };
 
 // 5. A year of regen for a typical simulated commuter: the app's own annualProjection
-// (energy recovered per trip x tripsPerDay x 365), averaged over the demo personas' trips.
+// (energy recovered per trip x tripsPerDay x 365), averaged over the generated dry-road demo trips
+// (3 routes x 3 driving styles) in regenerative-analysis/data/trips.
 // Conversions mirror regenerative-analysis/src/config/regen.config.ts `savings`.
 const SAV = { kwhPerGallon: 33.7, engineEfficiency: 0.3, gasPriceUsd: 3.0, kgCo2PerGallon: 8.9 };
 const LB_PER_KG = 2.20462;
-const personas = JSON.parse(readFileSync(path.join(SRC, "../src/data/personas.overlay.json"), "utf8")).personas;
-const years = personas.map((p) => {
-  const trip = JSON.parse(readFileSync(path.join(SRC, `../data/trips/${p.tripId}.json`), "utf8"));
-  const perYear = p.commute.tripsPerDay * 365;
-  const kwh = trip.summary.energyRecoveredKwh * perYear;
-  const gallons = kwh / (SAV.kwhPerGallon * SAV.engineEfficiency);
+const TRIPS_PER_DAY = 2;
+const OUT = new URL("../src/data/insights.json", import.meta.url);
+const TRIPS = path.join(SRC, "../data/trips");
+const readTrip = (id) => JSON.parse(readFileSync(path.join(TRIPS, `${id}.json`), "utf8"));
+const toGallons = (kwh) => kwh / (SAV.kwhPerGallon * SAV.engineEfficiency);
+
+// Fail loudly if the trips are missing: a silent fallback would ship stale figures.
+const dryIds = readdirSync(TRIPS)
+  .filter((f) => /^[a-z]+-(smooth|mixed|aggressive)-dry\.json$/.test(f))
+  .map((f) => f.replace(/\.json$/, ""));
+if (dryIds.length === 0) throw new Error(`No *-dry.json trips in ${TRIPS}`);
+const years = dryIds.map((id) => {
+  const kwh = readTrip(id).summary.energyRecoveredKwh * TRIPS_PER_DAY * 365;
+  const gallons = toGallons(kwh);
   return { kwh, gallons, dollars: gallons * SAV.gasPriceUsd, co2Lb: gallons * SAV.kgCo2PerGallon * LB_PER_KG };
 });
 const annual = {
-  basis: `${personas.length} demo commuters, 2 trips a day, 365 days, gas $${SAV.gasPriceUsd.toFixed(2)}/gal`,
+  basis: `${dryIds.length} simulated dry-road commutes, ${TRIPS_PER_DAY} trips a day, 365 days, gas $${SAV.gasPriceUsd.toFixed(2)}/gal`,
   gallons: round(avg(years.map((y) => y.gallons)), 1),
   dollars: round(avg(years.map((y) => y.dollars)), 0),
   co2Lb: round(avg(years.map((y) => y.co2Lb)), 0),
   kwh: round(avg(years.map((y) => y.kwh)), 0),
 };
 
+// 5a. Energy recovered per km by driving style, for the savings calculator (same dry-road trips).
+const calculator = {
+  basis: `${dryIds.length} simulated dry-road trips (3 routes x 3 driving styles)`,
+  kwhPerGallon: SAV.kwhPerGallon,
+  engineEfficiency: SAV.engineEfficiency,
+  kgCo2PerGallon: SAV.kgCo2PerGallon,
+  defaultGasPriceUsd: SAV.gasPriceUsd,
+  kwhPerKm: Object.fromEntries(
+    ["smooth", "mixed", "aggressive"].map((style) => {
+      const trips = dryIds.filter((id) => id.split("-")[1] === style).map(readTrip);
+      const kwh = trips.reduce((a, t) => a + t.summary.energyRecoveredKwh, 0);
+      const km = trips.reduce((a, t) => a + t.header.distanceM / 1000, 0);
+      return [style, round(kwh / km, 4)];
+    }),
+  ),
+};
+
+// 5b. The sample trip report on the page, straight from one generated trip and its coaching tip.
+const RECEIPT_TRIP = "mixed-mixed-dry";
+const rt = readTrip(RECEIPT_TRIP);
+const missedByCause = {};
+for (const e of rt.summary.missedEvents) missedByCause[e.cause] = (missedByCause[e.cause] ?? 0) + 1;
+const receipt = {
+  tripId: RECEIPT_TRIP,
+  route: rt.header.tripId.split("-")[0],
+  driver: rt.header.driver,
+  condition: rt.header.condition,
+  vehicle: rt.header.vehicle,
+  distanceKm: round(rt.header.distanceM / 1000, 1),
+  score: round(rt.summary.score, 0),
+  recoveredKwh: round(rt.summary.energyRecoveredKwh, 2),
+  ceilingKwh: round(rt.summary.energyCeilingKwh, 2),
+  heatLossKwh: round(rt.summary.heatLossKwh, 2),
+  missed: Object.entries(missedByCause).map(([cause, count]) => ({ cause, count })).sort((a, b) => b.count - a.count),
+  gallons: round(rt.summary.gallonsSaved, 3),
+  dollars: round(rt.summary.dollarsSaved, 2),
+  co2Lb: round(rt.summary.co2Kg * LB_PER_KG, 2),
+  tip: JSON.parse(readFileSync(path.join(TRIPS, `${RECEIPT_TRIP}.coach.json`), "utf8")).tip,
+};
+
+// Which product commit these numbers came from, so stale data is visible.
+let sourceCommit = "unknown";
+try {
+  sourceCommit = execFileSync("git", ["-C", SRC, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+} catch {
+  // Not a git checkout; leave "unknown".
+}
+
+// 6. Per-driver rows for the leaderboard (first name only; coached drivers with a regen car)
+const leaders = coached.map((r) => ({
+  name: r.u.alias.split(" (")[0],
+  style: r.u.driver.style,
+  baselineScore: round(r.c.baselineScore),
+  finalScore: round(r.c.finalScore),
+  improvement: round(r.c.improvement),
+  missed: r.c.dominantMissedCause,
+}));
+
 const out = {
   simulated: true,
-  note: "Synthesized drivers from the Regen Coach simulation. Not real people; all numbers are estimates.",
-  generatedFrom: `simulated_user_data (${users.length} drivers)`,
+  note: "Synthesized drivers from the Regentic simulation. Not real people; all numbers are estimates.",
+  generatedFrom: `regenerative-analysis@${sourceCommit}: simulated_user_data (${users.length} drivers), data/trips`,
   drivers: users.length,
   byStyle,
   missedCauses,
   coaching: coachingSummary,
   money,
   annual,
+  calculator,
+  receipt,
+  leaders,
 };
-writeFileSync(new URL("../src/data/insights.json", import.meta.url), JSON.stringify(out, null, 2) + "\n");
+writeFileSync(OUT, JSON.stringify(out, null, 2) + "\n");
 console.log(JSON.stringify(out, null, 2));
+
+// 7. The map demo: the Mount Bonnell descent with its per-second telemetry, trimmed to what the map draws.
+const DEMO_TRIP = "hilly-mixed-dry";
+const dt = readTrip(DEMO_TRIP);
+const r1 = (n, d = 2) => Number(n.toFixed(d));
+const demo = {
+  simulated: true,
+  tripId: DEMO_TRIP,
+  name: "Mount Bonnell descent",
+  driver: dt.header.driver,
+  condition: dt.header.condition,
+  vehicle: dt.header.vehicle,
+  distanceM: dt.header.distanceM,
+  score: round(dt.summary.score, 0),
+  generatedFrom: `regenerative-analysis@${sourceCommit}: data/trips/${DEMO_TRIP}.json`,
+  // [t s, lon, lat, speed m/s, regen kW, friction kW, missed cause or null]
+  samples: dt.samples.map((s) => [s.t, r1(s.lon, 6), r1(s.lat, 6), r1(s.speed, 1), r1(s.regenKw, 1), r1(s.frictionKw, 1), s.missed]),
+};
+writeFileSync(new URL("../src/data/demo-trip.json", import.meta.url), JSON.stringify(demo) + "\n");

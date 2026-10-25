@@ -5,11 +5,9 @@ import { motionValue, scroll, springValue } from "motion";
 
 const FEATURES = [
   { ico: "01 · MAP", title: "A real 3D city", body: "Drives replay on real roads, buildings and terrain, so every hill and red light is where it should be." },
-  { ico: "02 · SCORE", title: "Regen, scored", body: "Each segment is graded teal, amber or rose: energy captured, partly captured, or lost to friction brakes." },
-  { ico: "03 · SAVINGS", title: "Gallons, dollars, CO₂", body: "See what your braking saved against a conventional car, in units you can feel." },
-  { ico: "04 · DRIVERS", title: "Smooth to aggressive", body: "Flip the driver profile and watch the score re-run on the same route." },
-  { ico: "05 · CONDITIONS", title: "Dry roads to mud", body: "Traction limits how much you can recover. See how wet, snow and mud change the answer." },
-  { ico: "06 · COACH", title: "One tip, next drive", body: "A coaching tip written from the evidence in your trip, so the next drive scores higher." },
+  { ico: "02 · SCORE", title: "Regen, scored", body: "Each segment is graded teal, amber or rose. Switch the driving style, or the road from dry to wet, snow or mud, and the score re-runs on the same route." },
+  { ico: "03 · SAVINGS", title: "Gallons, dollars, CO₂", body: "See what your braking saved against a conventional car, with one coaching tip for the next drive." },
+  { ico: "04 · DECIDE", title: "Your next move", body: "Your driving, contract and budget become one recommended step: keep the car, buy it out, or switch." },
 ];
 
 const clamp = (n: number) => Math.min(1, Math.max(0, n));
@@ -63,9 +61,8 @@ export default function Features() {
     <section id="how" className="section">
       <div className="container">
         <div className="head" data-reveal>
-          <span className="label">How it works</span>
           <h2>See the energy you missed.</h2>
-          <p>Replay, score, compare, coach. Every number shows its work.</p>
+          <p>Replay, score, save, decide. Every number shows its work.</p>
         </div>
         <ol ref={list} className="steps">
           {FEATURES.map((f) => (
