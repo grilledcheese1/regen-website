@@ -12,7 +12,7 @@ const THEMES = [
     stat: `${Math.round(smooth.baselineScore)} vs ${Math.round(aggressive.baselineScore)}`,
     title: "Driving style beats the car.",
     body: `Smooth drivers started around ${Math.round(smooth.baselineScore)} on the regen score, mixed drivers near ${Math.round(mixed.baselineScore)}, aggressive drivers at ${Math.round(aggressive.baselineScore)}. Same physics, very different energy captured.`,
-    note: `${smooth.drivers} smooth · ${mixed.drivers} mixed · ${aggressive.drivers} aggressive drivers`,
+    note: `Scored drivers: ${smooth.withRegenCar} smooth · ${mixed.withRegenCar} mixed · ${aggressive.withRegenCar} aggressive`,
   },
   {
     stat: `${topCause.drivers} of ${coaching.drivers}`,
@@ -39,16 +39,14 @@ export default function Insights() {
     <section id="evidence" className="section">
       <div className="container">
         <div className="head" data-reveal>
-          <span className="label">What drivers show</span>
           <h2>What {insights.drivers} simulated drivers taught us.</h2>
           <p>
-            A qualitative read of the Regen Coach dataset: synthesized drivers, not real customer reports. Every number is an estimate.
+            A read of the Regentic dataset: synthesized drivers, not real customer reports. Every number is an estimate.
           </p>
         </div>
         <ol className="themes" data-stagger>
-          {THEMES.map((t, i) => (
+          {THEMES.map((t) => (
             <li className="theme" key={t.title}>
-              <span className="label">0{i + 1}</span>
               <div className="theme-stat">{t.stat}</div>
               <div>
                 <h3>{t.title}</h3>

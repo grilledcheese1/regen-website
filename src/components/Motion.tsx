@@ -78,13 +78,13 @@ export default function Motion() {
       gsap
         .timeline({ onComplete: () => { busy = false; } })
         .set(curtain, { yPercent: 0, y: 0 })
-        .fromTo(curtain, { yPercent: 100 }, { yPercent: 0, duration: 0.45, ease: "expo.inOut" })
+        .fromTo(curtain, { yPercent: 100 }, { yPercent: 0, duration: 0.225, ease: "expo.inOut" })
         .add(() => {
           window.scrollTo(0, y);
           ScrollTrigger.update();
           history.replaceState(null, "", `#${id}`);
         })
-        .to(curtain, { yPercent: -100, duration: 0.55, ease: "expo.inOut" }, "+=0.05");
+        .to(curtain, { yPercent: -100, duration: 0.275, ease: "expo.inOut" }, "+=0.025");
     };
     document.addEventListener("click", onClick);
 

@@ -9,6 +9,8 @@ import MapPreviewClient from "./MapPreviewClient";
 
 const CORNER = 12; // matches the demo's rounded-lg corners
 const OUTLINE_PX = 18; // dot diameter while it traces the square
+const STEP = 4; // px between route samples
+const LAG = 0.25; // screen rise per px of horizontal travel; recovered at half speed on the next vertical run
 
 const FIGURES = [
   { key: "gallons", label: "gal saved", value: insights.annual.gallons, fmt: (n: number) => n.toFixed(1) },
@@ -17,13 +19,114 @@ const FIGURES = [
   { key: "kwh", label: "kWh back", value: insights.annual.kwh, fmt: (n: number) => String(Math.round(n)) },
 ] as const;
 
+type Pt = { x: number; y: number };
+type Route = { pts: Pt[]; cum: number[]; len: number };
+
+/** Evenly spaced samples along a polyline, keeping every corner exactly. */
+function sample(corners: Pt[]): Route {
+  const pts: Pt[] = [corners[0]];
+  for (let i = 1; i < corners.length; i++) {
+    const a = corners[i - 1];
+    const b = corners[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / STEP));
+    for (let k = 1; k <= n; k++) pts.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n });
+  }
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+
+/** Point at arc length `s` along a sampled route. */
+function at(r: Route, s: number): Pt {
+  const d = Math.min(Math.max(s, 0), r.len);
+  let lo = 0;
+  let hi = r.cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (r.cum[mid] <= d) lo = mid;
+    else hi = mid;
+  }
+  const span = r.cum[hi] - r.cum[lo] || 1;
+  const u = (d - r.cum[lo]) / span;
+  return { x: r.pts[lo].x + (r.pts[hi].x - r.pts[lo].x) * u, y: r.pts[lo].y + (r.pts[hi].y - r.pts[lo].y) * u };
+}
+
 /**
- * One dot starts where the hero stats used to be and rides the page while a readout beside it counts up a
- * simulated driver's year of regen. It then flies to the map square, traces its outline, and the map fills in.
+ * Scroll position at which the dot reaches each sample. Vertical runs keep the dot near mid-screen;
+ * a horizontal run can't advance with the page, so the dot rises a little and catches up afterwards.
+ */
+function scrollMap(r: Route, vh: number, lag0: number): number[] {
+  let lag = lag0;
+  const out = [r.pts[0].y - vh / 2 + lag];
+  for (let i = 1; i < r.pts.length; i++) {
+    const dx = Math.abs(r.pts[i].x - r.pts[i - 1].x);
+    const dy = r.pts[i].y - r.pts[i - 1].y;
+    lag = dx > Math.abs(dy) ? lag + LAG * dx : Math.max(0, lag - 0.5 * Math.max(0, dy));
+    out.push(Math.max(r.pts[i].y - vh / 2 + lag, out[i - 1] + 0.01));
+  }
+  return out;
+}
+
+/** Arc length reached at scroll `s`, given each sample's scroll value. */
+function arcAt(r: Route, scrolls: number[], s: number): number {
+  if (s <= scrolls[0]) return 0;
+  const last = scrolls.length - 1;
+  if (s >= scrolls[last]) return r.len;
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (scrolls[mid] <= s) lo = mid;
+    else hi = mid;
+  }
+  const u = (s - scrolls[lo]) / (scrolls[hi] - scrolls[lo] || 1);
+  return r.cum[lo] + (r.cum[hi] - r.cum[lo]) * u;
+}
+
+/** Page box from offsets, so in-flight reveal transforms don't skew the route. */
+function pageBox(el: HTMLElement) {
+  let x = 0;
+  let y = 0;
+  for (let n: HTMLElement | null = el; n; n = n.offsetParent as HTMLElement | null) {
+    x += n.offsetLeft;
+    y += n.offsetTop;
+  }
+  return { left: x, top: y, right: x + el.offsetWidth, bottom: y + el.offsetHeight };
+}
+
+/** Page box of an element's text (not its full block), for routing around a heading. */
+function textBox(el: HTMLElement) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect();
+  const e = el.getBoundingClientRect();
+  const b = pageBox(el);
+  return { left: b.left + t.left - e.left, right: b.left + t.right - e.left, top: b.top + t.top - e.top, bottom: b.top + t.bottom - e.top };
+}
+
+/** Union of the text boxes of a heading block's children (heading, intro, notes). */
+function blockBox(head: HTMLElement) {
+  const boxes = Array.from(head.children)
+    .filter((c): c is HTMLElement => c instanceof HTMLElement && c.offsetHeight > 0)
+    .map(textBox);
+  return {
+    left: Math.min(...boxes.map((b) => b.left)),
+    right: Math.max(...boxes.map((b) => b.right)),
+    top: Math.min(...boxes.map((b) => b.top)),
+    bottom: Math.max(...boxes.map((b) => b.bottom)),
+  };
+}
+
+/**
+ * One dot starts where the hero stats used to be and rides the left lane while a readout beside it counts up a
+ * simulated driver's year of regen. Under the calculator it turns sharply into the right lane, splits into three
+ * around the tips heading, passes through each tip card, merges again, runs along the top of "Find your next move"
+ * while the heading fills with red, then flies to the map square, traces its outline, and the map fills in.
  * All driven by one scrubbed timeline over #journey.
  */
 export default function Move() {
   const dotRef = useRef<HTMLDivElement>(null);
+  const branchRefs = useRef<(HTMLDivElement | null)[]>([]);
   const readoutRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const squareRef = useRef<HTMLDivElement>(null);
@@ -36,6 +139,7 @@ export default function Move() {
     gsap.registerPlugin(ScrollTrigger);
 
     const dot = dotRef.current!;
+    const sideDots = branchRefs.current.filter((d): d is HTMLDivElement => d !== null);
     const readout = readoutRef.current!;
     const values = Array.from(readout.querySelectorAll<HTMLElement>("[data-fig]"));
     const stage = stageRef.current!;
@@ -49,8 +153,17 @@ export default function Move() {
     const brushSvg = document.createElementNS(NS, "svg");
     brushSvg.setAttribute("class", "brush");
     brushSvg.setAttribute("aria-hidden", "true");
-    const brush = document.createElementNS(NS, "path");
-    brushSvg.appendChild(brush);
+    const mk = (cls: string) => {
+      const p = document.createElementNS(NS, "path");
+      p.setAttribute("class", cls);
+      brushSvg.appendChild(p);
+      return p;
+    };
+    const ribbonIn = mk("ribbon"); // hero → left lane, widening with the dot
+    const trunkA = mk("line"); // left lane, the 90° turn, right lane
+    const branchLines = [mk("line"), mk("line"), mk("line")]; // around the tips heading and through the cards
+    const trunkB = mk("line"); // merge, underline the heading, down to the map
+    const ribbonOut = mk("ribbon"); // last stretch of the drop onto the square, narrowing
     journey.appendChild(brushSvg);
 
     let ctx: gsap.Context | undefined;
@@ -64,25 +177,139 @@ export default function Move() {
         const small = vw < 768;
         const pad = small ? 20 : 32;
         const containerLeft = Math.max(0, (vw - 1200) / 2);
-        const laneX = containerLeft + pad + (small ? 14 : 22);
+        const laneL = containerLeft + pad + (small ? 14 : 22);
+        const laneR = vw - laneL;
         const dMin = small ? 10 : 14;
-        const dMax = small ? 28 : 44;
+        const dLane = small ? 18 : 26;
+        const dBranch = small ? 10 : 14;
 
-        // Square outline in the demo's own pixels; the dot rides the same path.
         const s = square.offsetWidth;
-        path.setAttribute(
-          "d",
-          `M${CORNER},0 H${s - CORNER} A${CORNER},${CORNER} 0 0 1 ${s},${CORNER} V${s - CORNER} A${CORNER},${CORNER} 0 0 1 ${s - CORNER},${s} H${CORNER} A${CORNER},${CORNER} 0 0 1 0,${s - CORNER} V${CORNER} A${CORNER},${CORNER} 0 0 1 ${CORNER},0Z`,
-        );
-        const len = path.getTotalLength();
         const sqLeft = (vw - s) / 2;
         const sqTop = (stage.offsetHeight - s) / 2;
 
-        // Where the hero stat cards used to sit, in page coordinates.
+        // Timeline progress 0..1 is scroll 0 .. journey bottom at viewport bottom. The map stage sticks for the
+        // last stretch (from `fStart`), so the trace and fill play while it holds still.
+        const journeyTop = journey.getBoundingClientRect().top + window.scrollY;
+        const journeyBottom = journey.getBoundingClientRect().bottom + window.scrollY;
+        const range = journeyBottom - vh;
+        const trackTop = stage.parentElement!.getBoundingClientRect().top + window.scrollY;
+        const fStart = Math.min(0.9, trackTop / range);
+        const L = 1 - fStart;
+        const sEnd = fStart * range; // scroll at which the dot reaches the square's top edge
+
+        // --- Landmarks, in page coordinates ---
         const a = anchor.getBoundingClientRect();
         const startX = a.left + a.width / 2;
         const startPageY = a.top + a.height / 2 + window.scrollY;
+        const eqLen = vh * 0.7; // scroll over which the dot eases from the hero into the left lane
 
+        const calc = document.querySelector<HTMLElement>(".calc");
+        const tipsHead = document.querySelector<HTMLElement>("#tips .head");
+        const cards = Array.from(document.querySelectorAll<HTMLElement>("#tips .tip")).slice(0, 3);
+        const moveHead = document.querySelector<HTMLElement>(".move .head h2")!;
+
+        const laneStart = { x: laneL, y: eqLen + vh / 2 };
+        const turnY = calc ? pageBox(calc).bottom + 48 : laneStart.y + vh;
+        // The line runs along the top of "Find your next move", then drops past the right end of its block.
+        const mh = textBox(moveHead);
+        const mBlock = blockBox(moveHead.parentElement!);
+        const mergeX = Math.max(12, mBlock.left - 32);
+        const ulEndX = Math.min(vw - 12, mBlock.right + 32);
+        // The line drops straight onto the square's top edge (page y of that edge once the stage sticks), at an x
+        // inside the straight part of the edge, so it meets the outline at a clean 90° and turns along it.
+        const edgeY = sEnd + sqTop;
+        const dropX = Math.min(Math.max(ulEndX, sqLeft + CORNER + dLane), sqLeft + s - CORNER - dLane);
+        const jogY = mBlock.bottom + 40;
+
+        // Branch geometry around the tips heading and through its three cards.
+        const canSplit = Boolean(tipsHead) && cards.length === 3;
+        let splitY = turnY + vh * 0.5;
+        let mergeY = splitY + vh * 0.5;
+        let branches: Route[] = [];
+        let cardEntry: number[] = [];
+        if (canSplit) {
+          const th = blockBox(tipsHead!);
+          const boxes = cards.map(pageBox);
+          const cardsTop = Math.min(...boxes.map((b) => b.top));
+          const cardsBottom = Math.max(...boxes.map((b) => b.bottom));
+          splitY = th.top - 40;
+          mergeY = cardsBottom + 64;
+          const above = cardsTop - 28;
+          const below = cardsBottom + 28;
+          const xs = [Math.max(12, th.left - 28), Math.min(laneR - 40, th.right + 28), laneR];
+          branches = boxes.map((b, k) => {
+            const cx = (b.left + b.right) / 2;
+            return sample([
+              { x: laneR, y: splitY },
+              { x: xs[k], y: splitY },
+              { x: xs[k], y: above },
+              { x: cx, y: above },
+              { x: cx, y: below },
+              { x: mergeX, y: below },
+              { x: mergeX, y: mergeY },
+            ]);
+          });
+          // Arc length at which each branch reaches its card's top edge.
+          cardEntry = boxes.map((b, k) => {
+            const r = branches[k];
+            const i = r.pts.findIndex((p) => p.y >= b.top);
+            return i < 0 ? r.len : r.cum[i];
+          });
+        }
+
+        const routeA = sample([laneStart, { x: laneL, y: turnY }, { x: laneR, y: turnY }, { x: laneR, y: splitY }]);
+        const scrollA = scrollMap(routeA, vh, 0);
+        const sSplit = scrollA[scrollA.length - 1];
+        const sMerge = Math.max(mergeY - vh / 2, sSplit + 240);
+        const ulY = Math.max(mh.top - 20, mergeY + 12);
+        const routeB = sample([
+          { x: mergeX, y: mergeY },
+          { x: mergeX, y: ulY },
+          { x: ulEndX, y: ulY },
+          { x: ulEndX, y: jogY },
+          { x: dropX, y: jogY },
+          { x: dropX, y: Math.max(edgeY, jogY + 40) },
+        ]);
+        // The last stretch of the drop narrows from the lane width to the tracing dot, as a ribbon.
+        const tail = Math.min(140, Math.max(20, (edgeY - jogY) * 0.8));
+        const tailStart = routeB.len - tail;
+
+        // Square outline in the demo's own pixels, starting where the line lands and running clockwise.
+        const m = dropX - sqLeft;
+        const C = CORNER;
+        path.setAttribute(
+          "d",
+          `M${m},0 H${s - C} A${C},${C} 0 0 1 ${s},${C} V${s - C} A${C},${C} 0 0 1 ${s - C},${s} H${C} A${C},${C} 0 0 1 0,${s - C} V${C} A${C},${C} 0 0 1 ${C},0 H${m}`,
+        );
+        const len = path.getTotalLength();
+        // Route B starts with whatever lag puts the dot at the merge at `sMerge`. After the run along the heading,
+        // the dot's screen height glides to the square's top edge, so it lands exactly on the edge at `sEnd`.
+        const rawB = scrollMap(routeB, vh, sMerge - (mergeY - vh / 2));
+        const glideFrom = ulY - mergeY + (ulEndX - mergeX);
+        const scrollB: number[] = [];
+        routeB.pts.forEach((p, i) => {
+          const w = Math.min(1, Math.max(0, (routeB.cum[i] - glideFrom) / (routeB.len - glideFrom || 1)));
+          const screenY = (p.y - rawB[i]) * (1 - w) + sqTop * w;
+          scrollB.push(Math.max(p.y - screenY, i ? scrollB[i - 1] + 0.01 : -Infinity));
+        });
+
+        // Static stroke geometry, in #journey coordinates; progress is revealed with dash offsets.
+        const toD = (r: Route) => "M" + r.pts.map((p) => `${p.x.toFixed(1)},${(p.y - journeyTop).toFixed(1)}`).join("L");
+        trunkA.setAttribute("d", toD(routeA));
+        trunkA.setAttribute("stroke-width", String(dLane));
+        trunkB.setAttribute("d", toD(routeB));
+        trunkB.setAttribute("stroke-width", String(dLane));
+        branchLines.forEach((line, k) => {
+          line.setAttribute("d", branches[k] ? toD(branches[k]) : "");
+          line.setAttribute("stroke-width", String(dBranch));
+        });
+        const reveal = (line: SVGPathElement, total: number, done: number) => {
+          line.style.visibility = done > 0.5 ? "visible" : "hidden";
+          line.style.strokeDasharray = `${total} ${total}`;
+          line.style.strokeDashoffset = String(total - done);
+        };
+
+        // Dot and readout state, in viewport coordinates.
         const S = { x: startX, y: startPageY - window.scrollY, d: dMin, o: entered ? 1 : 0, ro: entered ? 1 : 0, p: 0, dx: 1, dy: 0 };
         const hw = readout.offsetWidth / 2;
         const hh = readout.offsetHeight / 2;
@@ -106,91 +333,111 @@ export default function Move() {
           });
         }
 
-        // Timeline progress 0..1 is scroll 0 .. journey bottom at viewport bottom. The map stage sticks for the
-        // last stretch (from `fStart`), so the flight, trace and fill all play while it holds still.
-        const journeyBottom = journey.getBoundingClientRect().bottom + window.scrollY;
-        const range = journeyBottom - vh;
-        const trackTop = stage.parentElement!.getBoundingClientRect().top + window.scrollY;
-        const fStart = Math.min(0.9, trackTop / range);
-        const L = 1 - fStart;
-
-        // The dot's route from the hero to the square's top-left corner, as a pure function of progress t.
-        const tEnd = fStart + L * 0.15;
-        const sqCx = sqLeft + s / 2;
-        const sqCy = sqTop + s / 2;
-        const cornerX = sqLeft + CORNER;
-        const cornerDx = (cornerX - sqCx) / Math.hypot(cornerX - sqCx, sqTop - sqCy);
-        const cornerDy = (sqTop - sqCy) / Math.hypot(cornerX - sqCx, sqTop - sqCy);
-        const ease2 = (u: number) => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
         const smooth = (u: number) => u * u * (3 - 2 * u);
-        const laneEnd = { x: laneX, y: vh * 0.5 };
-        const route = (t: number) => {
-          if (t <= fStart) {
-            const p = t / fStart;
-            const scroll = t * range;
-            const eq = smooth(Math.min(1, scroll / (vh * 0.7)));
-            return {
-              x: startX + (laneX - startX) * eq + Math.sin(p * Math.PI * 6) * (small ? 4 : 8) * eq,
-              y: (startPageY - scroll) * (1 - eq) + (vh * 0.5 + Math.sin(p * Math.PI * 3) * vh * 0.05) * eq,
-              d: dMin + (dMax - dMin) * smooth(p),
-              p,
-              dx: 1,
-              dy: 0,
-            };
-          }
-          const f = ease2(Math.min(1, (t - fStart) / (L * 0.15)));
+        const clamp01 = (u: number) => Math.min(1, Math.max(0, u));
+        const side = (x: number) => (x < vw / 2 ? 1 : -1); // readout on the content side of the lane
+
+        // Phase 1: ease from the hero into the left lane (viewport coordinates as a function of scroll).
+        const easeIn = (scroll: number) => {
+          const eq = smooth(Math.min(1, scroll / eqLen));
           return {
-            x: laneEnd.x + (cornerX - laneEnd.x) * f,
-            y: laneEnd.y + (sqTop - laneEnd.y) * f,
-            d: dMax + (OUTLINE_PX - dMax) * f,
-            p: 1,
-            dx: 1 + (cornerDx - 1) * f,
-            dy: cornerDy * f,
+            x: startX + (laneL - startX) * eq,
+            y: (startPageY - scroll) * (1 - eq) + (vh / 2) * eq,
+            d: dMin + (dLane - dMin) * eq,
           };
         };
 
-        // Smooth brush: a ribbon, as wide as the dot, laid along the route in page coordinates.
-        const journeyTop = journey.getBoundingClientRect().top + window.scrollY;
-        const N = 280;
-        const pts = Array.from({ length: N + 1 }, (_, i) => {
-          const t = (tEnd * i) / N;
-          const r = route(t);
-          return { x: r.x, y: r.y + t * range - journeyTop, w: r.d / 2 };
-        });
-        const sides = pts.map((q, i) => {
-          const a2 = pts[Math.max(0, i - 1)];
-          const b2 = pts[Math.min(N, i + 1)];
-          const tx = b2.x - a2.x;
-          const ty = b2.y - a2.y;
-          const m = Math.hypot(tx, ty) || 1;
-          const nx = -ty / m;
-          const ny = tx / m;
-          return { l: [q.x + nx * q.w, q.y + ny * q.w], r: [q.x - nx * q.w, q.y - ny * q.w] };
-        });
-        // Both ends are round caps (semicircular arcs), so the ribbon reads as a swept circle, not a cut strip.
+        const sqCx = sqLeft + s / 2;
+        const sqCy = sqTop + s / 2;
+        // Dot size along route B: lane width, narrowing to the tracing size over the tail of the drop.
+        const sizeB = (arc: number) => dLane + (OUTLINE_PX - dLane) * clamp01((arc - tailStart) / tail);
+
+        // Widening/narrowing ribbons, drawn up to the dot (round caps both ends).
         const fmt = (q: number[]) => `${q[0].toFixed(1)},${q[1].toFixed(1)}`;
-        const drawBrush = (t: number) => {
-          const k = Math.min(N, Math.floor((t / tEnd) * N));
-          if (k < 1) return brush.setAttribute("d", "");
-          // The head is the dot's exact position, not the last sample, so the cap wraps the dot itself.
-          const r = route(t);
-          const head = { x: r.x, y: r.y + t * range - journeyTop, w: r.d / 2 };
-          const prev = pts[k];
-          let tx = head.x - prev.x;
-          let ty = head.y - prev.y;
-          if (Math.hypot(tx, ty) < 0.01) {
-            tx = prev.x - pts[k - 1].x;
-            ty = prev.y - pts[k - 1].y;
+        const ribbon = (pts: { x: number; y: number; w: number }[]) => {
+          if (pts.length < 2) return "";
+          const sides = pts.map((q, i) => {
+            const a2 = pts[Math.max(0, i - 1)];
+            const b2 = pts[Math.min(pts.length - 1, i + 1)];
+            const m = Math.hypot(b2.x - a2.x, b2.y - a2.y) || 1;
+            const nx = -(b2.y - a2.y) / m;
+            const ny = (b2.x - a2.x) / m;
+            return { l: [q.x + nx * q.w, q.y + ny * q.w], r: [q.x - nx * q.w, q.y - ny * q.w] };
+          });
+          const head = pts[pts.length - 1];
+          const left = sides.map((q) => fmt(q.l));
+          const right = sides.slice().reverse().map((q) => fmt(q.r));
+          return `M${left.join("L")}A${head.w},${head.w} 0 0 0 ${right[0]}L${right.join("L")}A${pts[0].w},${pts[0].w} 0 0 0 ${left[0]}Z`;
+        };
+        const N = 80;
+        const drawIn = (scroll: number) => {
+          const upto = Math.min(scroll, eqLen);
+          if (upto <= 1) return ribbonIn.setAttribute("d", "");
+          const pts = Array.from({ length: N + 1 }, (_, i) => {
+            const sc = (upto * i) / N;
+            const r = easeIn(sc);
+            return { x: r.x, y: r.y + sc - journeyTop, w: r.d / 2 };
+          });
+          ribbonIn.setAttribute("d", ribbon(pts));
+        };
+        const drawOut = (arcB: number) => {
+          if (arcB <= tailStart) return ribbonOut.setAttribute("d", "");
+          const pts = Array.from({ length: 21 }, (_, i) => {
+            const arc = tailStart + ((arcB - tailStart) * i) / 20;
+            const q = at(routeB, arc);
+            return { x: q.x, y: q.y - journeyTop, w: sizeB(arc) / 2 };
+          });
+          ribbonOut.setAttribute("d", ribbon(pts));
+        };
+
+        const setHighlight = (pct: number) => moveHead.style.setProperty("--hl", `${pct.toFixed(1)}%`);
+
+        const update = (t: number) => {
+          const scroll = t * range;
+          S.p = clamp01(scroll / (sEnd || 1));
+          drawIn(scroll);
+
+          // Strokes along the page route.
+          reveal(trunkA, routeA.len, arcAt(routeA, scrollA, scroll));
+          const inBranch = canSplit && scroll > sSplit && scroll < sMerge;
+          const u = canSplit ? clamp01((scroll - sSplit) / (sMerge - sSplit)) : 0;
+          branches.forEach((r, k) => {
+            reveal(branchLines[k], r.len, u * r.len);
+            cards[k]?.classList.toggle("lit", u * r.len >= cardEntry[k]);
+          });
+          const arcB = scroll >= sMerge ? arcAt(routeB, scrollB, scroll) : 0;
+          reveal(trunkB, routeB.len, Math.min(arcB, tailStart));
+          drawOut(arcB);
+          // The heading fills red behind the dot as it runs along the top of the heading.
+          const head = at(routeB, arcB);
+          const onTop = scroll >= sMerge && head.y >= ulY - 0.5;
+          setHighlight(onTop ? clamp01((head.x - mh.left) / (mh.right - mh.left || 1)) * 110 : -10);
+
+          // The dot(s).
+          sideDots.forEach((d) => (d.style.opacity = inBranch ? String(S.o) : "0"));
+          // The readout steps aside while the dot splits and while it runs along the heading block.
+          const besideHeading = scroll >= sMerge && mBlock.bottom - scroll > 64 && t <= fStart;
+          S.ro = inBranch || besideHeading ? 0 : S.o;
+          if (scroll < eqLen) {
+            Object.assign(S, easeIn(scroll), { dx: 1, dy: 0 });
+          } else if (scroll <= sSplit || !canSplit) {
+            const q = at(routeA, arcAt(routeA, scrollA, scroll));
+            Object.assign(S, { x: q.x, y: q.y - scroll, d: dLane, dx: side(q.x), dy: 0 });
+          } else if (inBranch) {
+            const q = at(branches[1], u * branches[1].len);
+            Object.assign(S, { x: q.x, y: q.y - scroll, d: dBranch });
+            [0, 2].forEach((k, i) => {
+              const p = at(branches[k], u * branches[k].len);
+              const el = sideDots[i];
+              if (!el) return;
+              el.style.width = el.style.height = `${dBranch}px`;
+              el.style.transform = `translate3d(${p.x - dBranch / 2}px, ${p.y - scroll - dBranch / 2}px, 0)`;
+            });
+          } else {
+            const q = at(routeB, arcB);
+            Object.assign(S, { x: q.x, y: q.y - scroll, d: sizeB(arcB), dx: side(q.x), dy: 0 });
           }
-          const m = Math.hypot(tx, ty) || 1;
-          const hl = [head.x + (-ty / m) * head.w, head.y + (tx / m) * head.w];
-          const hr = [head.x - (-ty / m) * head.w, head.y - (tx / m) * head.w];
-          const left = sides.slice(0, k + 1).map((q) => fmt(q.l));
-          const right = sides.slice(0, k + 1).reverse().map((q) => fmt(q.r));
-          brush.setAttribute(
-            "d",
-            `M${left.join("L")}L${fmt(hl)}A${head.w},${head.w} 0 0 0 ${fmt(hr)}L${right.join("L")}A${pts[0].w},${pts[0].w} 0 0 0 ${left[0]}Z`,
-          );
+          render();
         };
 
         const tl = gsap.timeline({
@@ -199,17 +446,10 @@ export default function Move() {
           scrollTrigger: { trigger: journey, start: 0, end: "bottom bottom", scrub: true, invalidateOnRefresh: true },
         });
 
-        // A + B. Leave the hero for the left lane, swell, then fly to the square's corner, leaving the brush behind.
+        // A + B. The page route down to the square's top edge, leaving the brush behind.
         const P = { t: 0 };
-        tl.to(P, {
-          t: tEnd,
-          duration: tEnd,
-          onUpdate() {
-            Object.assign(S, route(P.t));
-            drawBrush(P.t);
-            render();
-          },
-        }, 0);
+        update(Math.min(window.scrollY / range, fStart));
+        tl.to(P, { t: fStart, duration: fStart, onUpdate: () => update(P.t) }, 0);
 
         // C. Trace the outline; the stroke draws where the dot has been.
         const T = { p: 0 };
@@ -229,7 +469,7 @@ export default function Move() {
             path.style.strokeDashoffset = String(1 - T.p);
             render();
           },
-        }, fStart + L * 0.15);
+        }, fStart);
 
         // D. The dot dissolves into the square as the map fills from the bottom.
         tl.to(S, { o: 0, ro: 0, d: 0, duration: L * 0.08, immediateRender: false, onUpdate: render }, fStart + L * 0.65);
@@ -244,17 +484,26 @@ export default function Move() {
     };
 
     build();
+    // Rebuild when layout settles or changes: web fonts, a filter changing the leaderboard height, a resize.
     let timer: number;
-    const onResize = () => {
+    const schedule = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(build, 250);
+      timer = window.setTimeout(() => {
+        build();
+        ScrollTrigger.refresh();
+      }, 250);
     };
-    window.addEventListener("resize", onResize);
+    document.fonts?.ready.then(schedule);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(journey);
+    window.addEventListener("resize", schedule);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("resize", onResize);
+      ro.disconnect();
+      window.removeEventListener("resize", schedule);
       ctx?.revert();
       brushSvg.remove();
+      document.querySelectorAll("#tips .tip.lit").forEach((c) => c.classList.remove("lit"));
     };
   }, []);
 
@@ -283,6 +532,9 @@ export default function Move() {
       </div>
 
       <div ref={dotRef} className="journey-dot" aria-hidden />
+      {[0, 1].map((i) => (
+        <div key={i} ref={(el) => { branchRefs.current[i] = el; }} className="journey-dot" aria-hidden />
+      ))}
       <div ref={readoutRef} className="journey-readout" aria-hidden>
         {FIGURES.map((f, i) => (
           <div key={f.key} className="fig" style={{ marginLeft: i * 18 }}>
