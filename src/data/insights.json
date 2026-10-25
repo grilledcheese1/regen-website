@@ -1,0 +1,76 @@
+{
+  "simulated": true,
+  "note": "Synthesized drivers from the Regen Coach simulation. Not real people; all numbers are estimates.",
+  "generatedFrom": "simulated_user_data (26 drivers)",
+  "drivers": 26,
+  "byStyle": [
+    {
+      "style": "aggressive",
+      "drivers": 7,
+      "withRegenCar": 5,
+      "baselineScore": 37.8,
+      "finalScore": 41.6,
+      "improvement": 3.8,
+      "coachability": 0.58
+    },
+    {
+      "style": "smooth",
+      "drivers": 11,
+      "withRegenCar": 8,
+      "baselineScore": 86.6,
+      "finalScore": 91.7,
+      "improvement": 5.1,
+      "coachability": 0.54
+    },
+    {
+      "style": "mixed",
+      "drivers": 8,
+      "withRegenCar": 5,
+      "baselineScore": 69.2,
+      "finalScore": 74.6,
+      "improvement": 5.5,
+      "coachability": 0.6
+    }
+  ],
+  "missedCauses": [
+    {
+      "cause": "late braking",
+      "drivers": 9,
+      "tip": "Lift off the accelerator earlier and brake gently so regen can handle the stop."
+    },
+    {
+      "cause": "cold battery",
+      "drivers": 7,
+      "tip": "Cold batteries limit regen. A few minutes of gentle driving warms the pack."
+    },
+    {
+      "cause": "full battery",
+      "drivers": 2,
+      "tip": "The battery was near full or hot. Long descents after a full charge waste regen, so plan for it."
+    }
+  ],
+  "coaching": {
+    "drivers": 18,
+    "improved": 17,
+    "avgImprovement": 4.8,
+    "bestImprovement": 8.9,
+    "highCoachabilityAvgGain": 6.8,
+    "lowCoachabilityAvgGain": 3.6
+  },
+  "money": {
+    "avgAnnualBrakeWearUsd": 175,
+    "avgAnnualGasUsd": 1292,
+    "avgAnnualCo2Kg": 3528,
+    "switchRecommended": 7,
+    "keepRecommended": 19,
+    "underwater": 0,
+    "avgSavingsWhenSwitching5yUsd": 8263
+  },
+  "annual": {
+    "basis": "4 demo commuters, 2 trips a day, 365 days, gas $3.00/gal",
+    "gallons": 27.2,
+    "dollars": 82,
+    "co2Lb": 534,
+    "kwh": 275
+  }
+}
